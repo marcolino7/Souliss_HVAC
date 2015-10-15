@@ -3,27 +3,35 @@
 	Controllo Condizionatori Mitsubushi
 
 		'Ciseco Remote Programming
-		'Node Address = 02
+		'Node Address = 04
 		'Channel Offset = 3
 		'BaudRate = 57600
 
 ***************************************************************************/
 
+#define	VNET_DEBUG_INSKETCH
+#define VNET_DEBUG  		1
+
+#define	MaCaco_DEBUG_INSKETCH
+#define MaCaco_DEBUG  		0
+
+
 #define USARTDRIVER_INSKETCH
-#define	USARTDRIVER				Serial	//Dico al driver vNet di usare la seriale 0 dell'UNO
+#define	USARTDRIVER				Serial1	//Dico al driver vNet di usare la seriale 0 dell'UNO
 #define USART_TXENABLE			0
-#define USART_TXENPIN			3
+
 
 #define USARTBAUDRATE_INSKETCH
 #define	USART_BAUD57k6			1
 #define USART_BAUD115k2			0
 
-#define USART_DEBUG  			0
+#define USART_DEBUG  			1
 
 #include "bconf/StandardArduino.h"			// Use a standard Arduino
 #include "conf/usart.h"
 
 #include "Souliss.h"
+#include <SPI.h>
 #include "IRremote2.h"
 
 
@@ -61,6 +69,9 @@ void setup()
 	Souliss_SetT19(memory_map, T_HVAC_VANNE);
 	Souliss_SetT11(memory_map, T_HVAC_POWER);
 
+	Serial.begin(115200);
+	Serial.println("NodeINIT");
+
 }
 
 void loop()
@@ -94,7 +105,8 @@ void loop()
 		}
 
         FAST_2110ms() {
-		
+			Serial.println("Fast2110");
+
 			// La libreria HVAC funziona a logica invertita. Inviando False Accendo, inviando True spengo
 			mode = mOutput(T_HVAC_MODE);
 			temp = mOutput(T_HVAC_TEMP);
