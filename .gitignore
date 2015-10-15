@@ -1,0 +1,12 @@
+#/*.sdf
+
+# Ignore everything
+*
+
+# But not these files...
+!.gitignore
+!*.ino
+!*.txt
+!*.cpp
+!*.h
+!
