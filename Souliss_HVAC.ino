@@ -41,10 +41,10 @@
 #define myvNet_supern		0x0000
 
 #define T_HVAC_MODE		0	//T19 Modo
-#define T_HVAC_TEMP		1	//T19 Temperatura
-#define T_HVAC_FAN		2	//T19 Ventola
-#define T_HVAC_VANNE	3	//T19 Pale
-#define T_HVAC_POWER	4	//T11 ON Off
+#define T_HVAC_TEMP		2	//T19 Temperatura
+#define T_HVAC_FAN		4	//T19 Ventola
+#define T_HVAC_VANNE	6	//T19 Pale
+#define T_HVAC_POWER	8	//T11 ON Off
 
 #define DEADBAND      0.05 //Se la variazione è superio del 5% aggiorno
 #define DEADBANDNTC   0.01 //Se la variazione è superio del 1% aggiorno
@@ -105,13 +105,28 @@ void loop()
 		}
 
         FAST_2110ms() {
-			Serial.println("Fast2110");
 
 			// La libreria HVAC funziona a logica invertita. Inviando False Accendo, inviando True spengo
+			//mode = mOutput(T_HVAC_MODE);
 			mode = mOutput(T_HVAC_MODE);
 			temp = mOutput(T_HVAC_TEMP);
 			fan = mOutput(T_HVAC_FAN);
 			vanne = mOutput(T_HVAC_VANNE);
+
+			Serial.println("-------------");
+			Serial.print("mode:");
+			Serial.println(mode);
+
+			Serial.print("temp:");
+			Serial.println(temp);
+
+			Serial.print("fan:");
+			Serial.println(fan);
+
+			Serial.print("vanne:");
+			Serial.println(vanne);
+
+
 
 			if (mOutput(T_HVAC_POWER) == Souliss_T1n_OnCoil) {	//Verifico che il T11 con il power sia acceso
 				pwr_off = false;
@@ -121,9 +136,14 @@ void loop()
 				pwr_off = true;
 			}
 
-			//Resta da verificare il cambiamento di un dato
-			irsend.sendHvacMitsubishi((HvacMode)mode, temp, (HvacFanMode)fan, (HvacVanneMode)vanne, pwr_off);
+			Serial.print("pwr_off:");
+			Serial.println(mOutput(T_HVAC_POWER));
 
+			if (isTrigged(T_HVAC_MODE) || isTrigged(T_HVAC_TEMP) || isTrigged(T_HVAC_FAN) || isTrigged(T_HVAC_VANNE) || isTrigged(T_HVAC_POWER)) {
+				//Resta da verificare il cambiamento di un dato
+				irsend.sendHvacMitsubishi((HvacMode)mode, temp, (HvacFanMode)fan, (HvacVanneMode)vanne, pwr_off);
+				Serial.println("IR Sent");
+			}
 		}
 		FAST_PeerComms();
 }
