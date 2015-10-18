@@ -40,10 +40,14 @@
 #define myvNet_subnet		0xFF00
 #define myvNet_supern		0x0000
 
-#define T_HVAC_MODE		0	//T19 Modo
-#define T_HVAC_TEMP		2	//T19 Temperatura
-#define T_HVAC_FAN		4	//T19 Ventola
-#define T_HVAC_VANNE	6	//T19 Pale
+#define T_HVAC_MODE_NC	0
+#define T_HVAC_MODE		1	//T19 Modo
+#define T_HVAC_TEMP_NC  2
+#define T_HVAC_TEMP		3	//T19 Temperatura
+#define T_HVAC_FAN_NC   4
+#define T_HVAC_FAN		5	//T19 Ventola
+#define T_HVAC_VANNE_NC 6
+#define T_HVAC_VANNE	7	//T19 Pale
 #define T_HVAC_POWER	8	//T11 ON Off
 
 #define DEADBAND      0.05 //Se la variazione è superio del 5% aggiorno
@@ -60,18 +64,21 @@ boolean pwr_off = false;
 
 void setup()
 {	
-	Souliss_SetAddress(myvNet_address, myvNet_subnet, myvNet_supern);		
-
-	// Tipico T19 per il controllo del Servomotore
-	Souliss_SetT19(memory_map, T_HVAC_MODE);
-	Souliss_SetT19(memory_map, T_HVAC_TEMP);
-	Souliss_SetT19(memory_map, T_HVAC_FAN);
-	Souliss_SetT19(memory_map, T_HVAC_VANNE);
-	Souliss_SetT11(memory_map, T_HVAC_POWER);
-
 	Serial.begin(115200);
 	Serial.println("NodeINIT");
 
+	Souliss_SetAddress(myvNet_address, myvNet_subnet, myvNet_supern);		
+
+	// Tipico T19 per il controllo del Servomotore
+	Souliss_SetT19(memory_map, T_HVAC_MODE_NC);
+	Souliss_SetT19(memory_map, T_HVAC_TEMP_NC);
+	Souliss_SetT19(memory_map, T_HVAC_FAN_NC);
+	Souliss_SetT19(memory_map, T_HVAC_VANNE_NC);
+	Souliss_SetT11(memory_map, T_HVAC_POWER);
+
+	Serial.println("Joined");
+
+	mOutput(T_HVAC_TEMP) = 53; //22 Gradi
 }
 
 void loop()
@@ -81,10 +88,10 @@ void loop()
 		FAST_50ms() {	// We process the logic and relevant input and output every 50 milliseconds
 			//-------- T19 Controllo Servo
 			// Execute the logic that handle the LED
-			Souliss_Logic_T19_Bis(memory_map, T_HVAC_MODE, &data_changed);
-			Souliss_Logic_T19_Bis(memory_map, T_HVAC_TEMP, &data_changed);
-			Souliss_Logic_T19_Bis(memory_map, T_HVAC_FAN, &data_changed);
-			Souliss_Logic_T19_Bis(memory_map, T_HVAC_VANNE, &data_changed);
+			Souliss_Logic_T19_Bis(memory_map, T_HVAC_MODE_NC, &data_changed);
+			Souliss_Logic_T19_Bis(memory_map, T_HVAC_TEMP_NC, &data_changed);
+			Souliss_Logic_T19_Bis(memory_map, T_HVAC_FAN_NC, &data_changed);
+			Souliss_Logic_T19_Bis(memory_map, T_HVAC_VANNE_NC, &data_changed);
 			Souliss_Logic_T11(memory_map, T_HVAC_POWER, &data_changed);
 
 		}
@@ -109,9 +116,27 @@ void loop()
 			// La libreria HVAC funziona a logica invertita. Inviando False Accendo, inviando True spengo
 			//mode = mOutput(T_HVAC_MODE);
 			mode = mOutput(T_HVAC_MODE);
-			temp = mOutput(T_HVAC_TEMP);
+			if (mode == 2) 	mode = 1;
+			if (mode == 5) 	mode = 2;
+			if (mode == 10) mode = 3;
+			
+			temp = round(mOutput(T_HVAC_TEMP) / 2.55);
+
 			fan = mOutput(T_HVAC_FAN);
+			if (fan == 2) 	fan = 1;
+			if (fan == 5) 	fan = 2;
+			if (fan == 7) 	fan = 3;
+			if (fan == 10) 	fan = 4;
+			if (fan == 12) 	fan = 5;
+			if (fan == 15) 	fan = 6;
+
 			vanne = mOutput(T_HVAC_VANNE);
+			if (vanne == 2) vanne = 1;
+			if (vanne == 5) vanne = 2;
+			if (vanne == 7) vanne = 3;
+			if (vanne == 10) vanne = 4;
+			if (vanne == 12) vanne = 5;
+			if (vanne == 15) vanne = 6;
 
 			Serial.println("-------------");
 			Serial.print("mode:");
@@ -137,9 +162,9 @@ void loop()
 			}
 
 			Serial.print("pwr_off:");
-			Serial.println(mOutput(T_HVAC_POWER));
-
-			if (isTrigged(T_HVAC_MODE) || isTrigged(T_HVAC_TEMP) || isTrigged(T_HVAC_FAN) || isTrigged(T_HVAC_VANNE) || isTrigged(T_HVAC_POWER)) {
+			Serial.println(pwr_off);
+			
+			if (isTrigger()) {
 				//Resta da verificare il cambiamento di un dato
 				irsend.sendHvacMitsubishi((HvacMode)mode, temp, (HvacFanMode)fan, (HvacVanneMode)vanne, pwr_off);
 				Serial.println("IR Sent");
