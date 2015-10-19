@@ -10,14 +10,14 @@
 ***************************************************************************/
 
 #define	VNET_DEBUG_INSKETCH
-#define VNET_DEBUG  		1
+#define VNET_DEBUG  		0
 
 #define	MaCaco_DEBUG_INSKETCH
 #define MaCaco_DEBUG  		0
 
 
 #define USARTDRIVER_INSKETCH
-#define	USARTDRIVER				Serial1	//Dico al driver vNet di usare la seriale 0 dell'UNO
+#define	USARTDRIVER				Serial	//Dico al driver vNet di usare la seriale 0 dell'UNO
 #define USART_TXENABLE			0
 
 
@@ -33,6 +33,7 @@
 #include "Souliss.h"
 #include <SPI.h>
 #include "IRremote2.h"
+#include <dht.h>
 
 
 // network addresses
@@ -49,10 +50,18 @@
 #define T_HVAC_VANNE_NC 6
 #define T_HVAC_VANNE	7	//T19 Pale
 #define T_HVAC_POWER	8	//T11 ON Off
+#define T_HVAC_SEND		9	//T14 Send command
+#define T_TEMP			10
+#define T_HUMI			12
+
+#define PIN_DHT22		5
 
 #define DEADBAND      0.05 //Se la variazione è superio del 5% aggiorno
 #define DEADBANDNTC   0.01 //Se la variazione è superio del 1% aggiorno
 #define DEADBANDLOW	  0.005
+
+// Identify the sensor, in case of more than one used on the same board	
+dht DHT;
 
 IRsend irsend;
 
@@ -64,8 +73,8 @@ boolean pwr_off = false;
 
 void setup()
 {	
-	Serial.begin(115200);
-	Serial.println("NodeINIT");
+	//Serial.begin(115200);
+	//Serial.println("NodeINIT");
 
 	Souliss_SetAddress(myvNet_address, myvNet_subnet, myvNet_supern);		
 
@@ -75,8 +84,14 @@ void setup()
 	Souliss_SetT19(memory_map, T_HVAC_FAN_NC);
 	Souliss_SetT19(memory_map, T_HVAC_VANNE_NC);
 	Souliss_SetT11(memory_map, T_HVAC_POWER);
+	Souliss_SetT14(memory_map, T_HVAC_SEND);
 
-	Serial.println("Joined");
+	//T52 Temperatur DHT
+	Souliss_SetT52(memory_map, T_TEMP);
+	//T53 Umidità
+	Souliss_SetT53(memory_map, T_HUMI);
+
+	//Serial.println("Joined");
 
 	mOutput(T_HVAC_TEMP) = 53; //22 Gradi
 }
@@ -86,13 +101,6 @@ void loop()
 	EXECUTEFAST() {						
 		UPDATEFAST();
 		FAST_50ms() {	// We process the logic and relevant input and output every 50 milliseconds
-			//-------- T19 Controllo Servo
-			// Execute the logic that handle the LED
-			Souliss_Logic_T19_Bis(memory_map, T_HVAC_MODE_NC, &data_changed);
-			Souliss_Logic_T19_Bis(memory_map, T_HVAC_TEMP_NC, &data_changed);
-			Souliss_Logic_T19_Bis(memory_map, T_HVAC_FAN_NC, &data_changed);
-			Souliss_Logic_T19_Bis(memory_map, T_HVAC_VANNE_NC, &data_changed);
-			Souliss_Logic_T11(memory_map, T_HVAC_POWER, &data_changed);
 
 		}
 
@@ -103,15 +111,24 @@ void loop()
 		}
 
 		FAST_110ms() {
+			Souliss_Logic_T52(memory_map, T_TEMP, DEADBANDLOW, &data_changed);
+			Souliss_Logic_T53(memory_map, T_HUMI, DEADBANDLOW, &data_changed);
 		}
 
 		FAST_510ms() {
+
+
 		}
 
 		FAST_1110ms() {
-		}
-
-        FAST_2110ms() {
+			//-------- T19 Controllo Servo
+			// Execute the logic that handle the LED
+			Souliss_Logic_T19_Bis(memory_map, T_HVAC_MODE_NC, &data_changed);
+			Souliss_Logic_T19_Bis(memory_map, T_HVAC_TEMP_NC, &data_changed);
+			Souliss_Logic_T19_Bis(memory_map, T_HVAC_FAN_NC, &data_changed);
+			Souliss_Logic_T19_Bis(memory_map, T_HVAC_VANNE_NC, &data_changed);
+			Souliss_Logic_T11(memory_map, T_HVAC_POWER, &data_changed);
+			Souliss_Logic_T11(memory_map, T_HVAC_SEND, &data_changed);
 
 			// La libreria HVAC funziona a logica invertita. Inviando False Accendo, inviando True spengo
 			//mode = mOutput(T_HVAC_MODE);
@@ -119,7 +136,7 @@ void loop()
 			if (mode == 2) 	mode = 1;
 			if (mode == 5) 	mode = 2;
 			if (mode == 10) mode = 3;
-			
+
 			temp = round(mOutput(T_HVAC_TEMP) / 2.55);
 
 			fan = mOutput(T_HVAC_FAN);
@@ -138,7 +155,15 @@ void loop()
 			if (vanne == 12) vanne = 5;
 			if (vanne == 15) vanne = 6;
 
-			Serial.println("-------------");
+			if (mOutput(T_HVAC_POWER) == Souliss_T1n_OnCoil) {	//Verifico che il T11 con il power sia acceso
+				pwr_off = false;
+			}
+			else {
+				//irsend.sendHvacMitsubishi(mode, temp, FAN_SPEED_AUTO, VANNE_AUTO_MOVE, true);
+				pwr_off = true;
+			}
+
+			/*Serial.println("-------------");
 			Serial.print("mode:");
 			Serial.println(mode);
 
@@ -150,25 +175,23 @@ void loop()
 
 			Serial.print("vanne:");
 			Serial.println(vanne);
-
-
-
-			if (mOutput(T_HVAC_POWER) == Souliss_T1n_OnCoil) {	//Verifico che il T11 con il power sia acceso
-				pwr_off = false;
-			}
-			else {
-				//irsend.sendHvacMitsubishi(mode, temp, FAN_SPEED_AUTO, VANNE_AUTO_MOVE, true);
-				pwr_off = true;
-			}
-
 			Serial.print("pwr_off:");
 			Serial.println(pwr_off);
-			
-			if (isTrigger()) {
+
+			Serial.print("send:");
+			Serial.println(mOutput(T_HVAC_SEND));*/
+
+
+			if (mOutput(T_HVAC_SEND)==1) {
 				//Resta da verificare il cambiamento di un dato
 				irsend.sendHvacMitsubishi((HvacMode)mode, temp, (HvacFanMode)fan, (HvacVanneMode)vanne, pwr_off);
-				Serial.println("IR Sent");
+				//Serial.println("IR Sent");
+				mOutput(T_HVAC_SEND) = 0;
 			}
+
+		}
+
+        FAST_2110ms() {
 		}
 		FAST_PeerComms();
 }
@@ -176,10 +199,21 @@ void loop()
 	EXECUTESLOW() {
 		UPDATESLOW();
 		SLOW_10s() {		// We handle the light timer with a 10 seconds base time
+			DHTRead();
 		}
 	}		
 }
 
+void DHTRead() {
+	int chk = DHT.read22(PIN_DHT22);
+	if (chk == DHTLIB_OK) {
+		float temperature = DHT.temperature;
+		Souliss_ImportAnalog(memory_map, T_TEMP, &temperature);
+
+		float humidity = DHT.humidity;
+		Souliss_ImportAnalog(memory_map, T_HUMI, &humidity);
+	}
+}
 
 /**************************************************************************
 /*
