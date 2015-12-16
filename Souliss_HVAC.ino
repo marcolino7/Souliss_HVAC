@@ -3,29 +3,22 @@
 	Controllo Condizionatori Mitsubushi
 
 		'Ciseco Remote Programming
-		'Node Address = 04
+		'Node Address Camera Letto = 04
+		'Node Address Cucina = 05
 		'Channel Offset = 3
 		'BaudRate = 57600
 
 ***************************************************************************/
-
-#define	VNET_DEBUG_INSKETCH
-#define VNET_DEBUG  		0
-
-#define	MaCaco_DEBUG_INSKETCH
-#define MaCaco_DEBUG  		0
-
-
-#define USARTDRIVER_INSKETCH
-#define	USARTDRIVER				Serial	//Dico al driver vNet di usare la seriale 0 dell'UNO
-#define USART_TXENABLE			0
+#define USE_DHT
+// IMPOSTARE QUA L'INDIRIZZO
+// 04 Camera - 05 Cucina
+#define myvNet_address		0xCE04
 
 
 #define USARTBAUDRATE_INSKETCH
 #define	USART_BAUD57k6			1
 #define USART_BAUD115k2			0
 
-#define USART_DEBUG  			1
 
 #include "bconf/StandardArduino.h"			// Use a standard Arduino
 #include "conf/usart.h"
@@ -37,7 +30,6 @@
 
 
 // network addresses
-#define myvNet_address		0xCE04
 #define myvNet_subnet		0xFF00
 #define myvNet_supern		0x0000
 
@@ -54,14 +46,14 @@
 #define T_TEMP			10
 #define T_HUMI			12
 
-#define PIN_DHT22		5
+#define PIN_DHT22		19
 
 #define DEADBAND      0.05 //Se la variazione è superio del 5% aggiorno
 #define DEADBANDNTC   0.01 //Se la variazione è superio del 1% aggiorno
 #define DEADBANDLOW	  0.005
 
 // Identify the sensor, in case of more than one used on the same board	
-dht DHT;
+	dht DHT;
 
 IRsend irsend;
 
@@ -73,12 +65,9 @@ boolean pwr_off = false;
 
 void setup()
 {	
-	//Serial.begin(115200);
-	//Serial.println("NodeINIT");
 
 	Souliss_SetAddress(myvNet_address, myvNet_subnet, myvNet_supern);		
 
-	// Tipico T19 per il controllo del Servomotore
 	Souliss_SetT19(memory_map, T_HVAC_MODE_NC);
 	Souliss_SetT19(memory_map, T_HVAC_TEMP_NC);
 	Souliss_SetT19(memory_map, T_HVAC_FAN_NC);
@@ -86,12 +75,12 @@ void setup()
 	Souliss_SetT11(memory_map, T_HVAC_POWER);
 	Souliss_SetT14(memory_map, T_HVAC_SEND);
 
+#ifdef USE_DHT
 	//T52 Temperatur DHT
 	Souliss_SetT52(memory_map, T_TEMP);
 	//T53 Umidità
 	Souliss_SetT53(memory_map, T_HUMI);
-
-	//Serial.println("Joined");
+#endif
 
 	mOutput(T_HVAC_TEMP) = 53; //22 Gradi
 }
@@ -111,8 +100,10 @@ void loop()
 		}
 
 		FAST_110ms() {
+		#ifdef USE_DHT
 			Souliss_Logic_T52(memory_map, T_TEMP, DEADBANDLOW, &data_changed);
 			Souliss_Logic_T53(memory_map, T_HUMI, DEADBANDLOW, &data_changed);
+		#endif
 		}
 
 		FAST_510ms() {
@@ -159,28 +150,8 @@ void loop()
 				pwr_off = false;
 			}
 			else {
-				//irsend.sendHvacMitsubishi(mode, temp, FAN_SPEED_AUTO, VANNE_AUTO_MOVE, true);
 				pwr_off = true;
 			}
-
-			/*Serial.println("-------------");
-			Serial.print("mode:");
-			Serial.println(mode);
-
-			Serial.print("temp:");
-			Serial.println(temp);
-
-			Serial.print("fan:");
-			Serial.println(fan);
-
-			Serial.print("vanne:");
-			Serial.println(vanne);
-			Serial.print("pwr_off:");
-			Serial.println(pwr_off);
-
-			Serial.print("send:");
-			Serial.println(mOutput(T_HVAC_SEND));*/
-
 
 			if (mOutput(T_HVAC_SEND)==1) {
 				//Resta da verificare il cambiamento di un dato
@@ -188,7 +159,6 @@ void loop()
 				//Serial.println("IR Sent");
 				mOutput(T_HVAC_SEND) = 0;
 			}
-
 		}
 
         FAST_2110ms() {
@@ -199,11 +169,97 @@ void loop()
 	EXECUTESLOW() {
 		UPDATESLOW();
 		SLOW_10s() {		// We handle the light timer with a 10 seconds base time
+		#ifdef USE_DHT
 			DHTRead();
+		#endif
 		}
 	}		
 }
 
+/**************************************************************************
+/*
+T19 logic bis, to handle a servo motor
+*/
+/**************************************************************************/
+void Souliss_Logic_T19_Bis(U8 *memory_map, U8 slot, U8 *trigger)
+{
+	// Look for input value, update output. If the output is not set, trig a data
+	// change, otherwise just reset the input
+
+	if (memory_map[MaCaco_IN_s + slot] == Souliss_T1n_ToggleCmd)        // Toogle Command
+	{
+		// Toogle the actual status of the light
+		if (memory_map[MaCaco_OUT_s + slot] == Souliss_T1n_OffCoil)
+			memory_map[MaCaco_IN_s + slot] = Souliss_T1n_OnCmd;
+		else if (memory_map[MaCaco_OUT_s + slot] == Souliss_T1n_OnCoil)
+			memory_map[MaCaco_IN_s + slot] = Souliss_T1n_OffCmd;
+		else
+			memory_map[MaCaco_IN_s + slot] = Souliss_T1n_RstCmd;
+	}
+	else if (memory_map[MaCaco_IN_s + slot] == Souliss_T1n_OffCmd)        // Off Command
+	{
+		// Trigger the change and save the actual color
+		if (memory_map[MaCaco_OUT_s + slot] != Souliss_T1n_OffCoil)
+		{
+			memory_map[MaCaco_OUT_s + slot] = Souliss_T1n_OffCoil;        // Switch off the light state
+			*trigger = Souliss_TRIGGED;                                    // Trig the change
+		}
+
+		// Once is off, reset
+		if ((memory_map[MaCaco_OUT_s + slot + 1] == 0))
+			memory_map[MaCaco_IN_s + slot] = Souliss_T1n_RstCmd;        // Reset
+	}
+	else if (memory_map[MaCaco_IN_s + slot] == Souliss_T1n_OnCmd)
+	{
+		if (memory_map[MaCaco_OUT_s + slot] != Souliss_T1n_OnCoil)
+			*trigger = Souliss_TRIGGED;
+
+		memory_map[MaCaco_OUT_s + slot] = Souliss_T1n_OnCoil;            // Switch on the output
+
+		memory_map[MaCaco_IN_s + slot] = Souliss_T1n_RstCmd;            // Reset
+	}
+	else if (memory_map[MaCaco_IN_s + slot] == Souliss_T1n_BrightUp)        // Increase the light value 
+	{
+		// Increase the light value
+		if (memory_map[MaCaco_OUT_s + slot + 1] < 255 - Souliss_T1n_BrightValue)
+			memory_map[MaCaco_OUT_s + slot + 1] += Souliss_T1n_BrightValue;
+
+		memory_map[MaCaco_IN_s + slot] = Souliss_T1n_RstCmd;            // Reset
+	}
+	else if (memory_map[MaCaco_IN_s + slot] == Souliss_T1n_BrightDown)                // Decrease the light value
+	{
+		// Decrease the light value
+		if (memory_map[MaCaco_OUT_s + slot + 1] > Souliss_T1n_BrightValue)
+			memory_map[MaCaco_OUT_s + slot + 1] -= Souliss_T1n_BrightValue;
+
+		memory_map[MaCaco_IN_s + slot] = Souliss_T1n_RstCmd;            // Reset
+	}
+	else if (memory_map[MaCaco_IN_s + slot] == Souliss_T1n_Set)
+	{
+		// Set the new color
+		memory_map[MaCaco_OUT_s + slot + 1] = memory_map[MaCaco_IN_s + slot + 1];
+		memory_map[MaCaco_AUXIN_s + slot + 1] = memory_map[MaCaco_OUT_s + slot + 1];
+		memory_map[MaCaco_IN_s + slot + 1] = Souliss_T1n_RstCmd;
+
+		memory_map[MaCaco_AUXIN_s + slot] = Souliss_T1n_Timed;            // Set a timer for the state notification        
+		memory_map[MaCaco_OUT_s + slot] = Souliss_T1n_OnCoil;            // Switch on the output
+		memory_map[MaCaco_IN_s + slot] = Souliss_T1n_RstCmd;            // Reset        
+	}
+	else
+	{    // There is no command
+
+		if (memory_map[MaCaco_AUXIN_s + slot] > Souliss_T1n_Set)            // Decrese the timer value
+			memory_map[MaCaco_AUXIN_s + slot]--;
+		else if (memory_map[MaCaco_AUXIN_s + slot] > 0)                    // If we not getting new commands, the burst        
+		{                                                                // is done, send the actual state 
+			memory_map[MaCaco_AUXIN_s + slot] = 0;
+			*trigger = Souliss_TRIGGED;
+		}
+	}
+}
+
+
+#ifdef USE_DHT
 void DHTRead() {
 	int chk = DHT.read22(PIN_DHT22);
 	if (chk == DHTLIB_OK) {
@@ -214,85 +270,40 @@ void DHTRead() {
 		Souliss_ImportAnalog(memory_map, T_HUMI, &humidity);
 	}
 }
+#endif
+
+
+
+
+
+#define Souliss_T1C						0X1C			// 
 
 /**************************************************************************
-/*
-	T19 logic bis, to handle a servo motor
-*/	
+/*!
+	Define the use of Typical 1C
+*/
 /**************************************************************************/
-void Souliss_Logic_T19_Bis(U8 *memory_map, U8 slot, U8 *trigger)
+void Souliss_SetT1C(U8 *memory_map, U8 slot)
 {
-    // Look for input value, update output. If the output is not set, trig a data
-    // change, otherwise just reset the input
-    
-    if (memory_map[MaCaco_IN_s + slot] == Souliss_T1n_ToggleCmd)        // Toogle Command
-    {
-        // Toogle the actual status of the light
-        if(memory_map[MaCaco_OUT_s + slot] == Souliss_T1n_OffCoil)        
-            memory_map[MaCaco_IN_s + slot] = Souliss_T1n_OnCmd;            
-        else if(memory_map[MaCaco_OUT_s + slot] == Souliss_T1n_OnCoil)
-            memory_map[MaCaco_IN_s + slot] = Souliss_T1n_OffCmd;
-        else
-            memory_map[MaCaco_IN_s + slot] = Souliss_T1n_RstCmd;
-    }
-    else if (memory_map[MaCaco_IN_s + slot] == Souliss_T1n_OffCmd)        // Off Command
-    {
-        // Trigger the change and save the actual color
-        if(memory_map[MaCaco_OUT_s + slot] != Souliss_T1n_OffCoil)  
-        {                
-            memory_map[MaCaco_OUT_s + slot] = Souliss_T1n_OffCoil;        // Switch off the light state
-            *trigger = Souliss_TRIGGED;                                    // Trig the change
-        }
- 
-        // Once is off, reset
-        if((memory_map[MaCaco_OUT_s + slot + 1] == 0))
-            memory_map[MaCaco_IN_s + slot] = Souliss_T1n_RstCmd;        // Reset
-    }
-    else if (memory_map[MaCaco_IN_s + slot] == Souliss_T1n_OnCmd)
-    {
-        if(memory_map[MaCaco_OUT_s + slot] != Souliss_T1n_OnCoil)  
-            *trigger = Souliss_TRIGGED;    
-    
-        memory_map[MaCaco_OUT_s + slot] = Souliss_T1n_OnCoil;            // Switch on the output
-        
-            memory_map[MaCaco_IN_s + slot] = Souliss_T1n_RstCmd;            // Reset
-    }
-    else if (memory_map[MaCaco_IN_s + slot] == Souliss_T1n_BrightUp)        // Increase the light value 
-    {
-        // Increase the light value
-        if(memory_map[MaCaco_OUT_s + slot + 1] < 255 - Souliss_T1n_BrightValue) 
-            memory_map[MaCaco_OUT_s + slot + 1] += Souliss_T1n_BrightValue;
-        
-        memory_map[MaCaco_IN_s + slot] = Souliss_T1n_RstCmd;            // Reset
-    }
-    else if (memory_map[MaCaco_IN_s + slot] == Souliss_T1n_BrightDown)                // Decrease the light value
-    {
-        // Decrease the light value
-        if(memory_map[MaCaco_OUT_s + slot + 1] > Souliss_T1n_BrightValue) 
-            memory_map[MaCaco_OUT_s + slot + 1] -= Souliss_T1n_BrightValue;
-            
-        memory_map[MaCaco_IN_s + slot] = Souliss_T1n_RstCmd;            // Reset
-    }    
-    else if (memory_map[MaCaco_IN_s + slot] == Souliss_T1n_Set)
-    {    
-        // Set the new color
-        memory_map[MaCaco_OUT_s + slot + 1] = memory_map[MaCaco_IN_s + slot + 1];
-        memory_map[MaCaco_AUXIN_s + slot + 1] = memory_map[MaCaco_OUT_s + slot + 1];
-        memory_map[MaCaco_IN_s + slot + 1] = Souliss_T1n_RstCmd;
-        
-        memory_map[MaCaco_AUXIN_s + slot] = Souliss_T1n_Timed;            // Set a timer for the state notification        
-        memory_map[MaCaco_OUT_s + slot] = Souliss_T1n_OnCoil;            // Switch on the output
-        memory_map[MaCaco_IN_s + slot] = Souliss_T1n_RstCmd;            // Reset        
-    }
-    else
-    {    // There is no command
-        
-        if(memory_map[MaCaco_AUXIN_s + slot] > Souliss_T1n_Set)            // Decrese the timer value
-            memory_map[MaCaco_AUXIN_s + slot]--;
-        else if(memory_map[MaCaco_AUXIN_s + slot] > 0)                    // If we not getting new commands, the burst        
-        {                                                                // is done, send the actual state 
-            memory_map[MaCaco_AUXIN_s + slot] = 0;
-            *trigger = Souliss_TRIGGED;                                    
-        }    
-    }    
+	memory_map[MaCaco_TYP_s + slot] = Souliss_T1C;
+}
+
+U8 Souliss_Logic_T1C(U8 *memory_map, U8 slot, U8 *trigger)
+{
+	U8 i_trigger = 0;
+
+	if (memory_map[MaCaco_IN_s + slot] == Souliss_T1n_BrightUp)		// Increase the light value
+	{
+		// Increase the light value
+		if (memory_map[MaCaco_OUT_s + slot + 1] < 255 - Souliss_T1n_BrightValue)
+			memory_map[MaCaco_OUT_s + slot + 1] += Souliss_T1n_BrightValue;
+			memory_map[MaCaco_IN_s + slot] = Souliss_T1n_RstCmd;			// Reset
+		}
+	else if (memory_map[MaCaco_IN_s + slot] == Souliss_T1n_BrightDown)				// Decrease the light value
+	{
+		// Decrease the light value
+		if (memory_map[MaCaco_OUT_s + slot + 1] > Souliss_T1n_BrightValue)
+			memory_map[MaCaco_OUT_s + slot + 1] -= Souliss_T1n_BrightValue;
+			memory_map[MaCaco_IN_s + slot] = Souliss_T1n_RstCmd;			// Reset
+		}
 }
