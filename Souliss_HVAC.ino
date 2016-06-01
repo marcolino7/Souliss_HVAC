@@ -10,7 +10,7 @@
 
 ***************************************************************************/
 #define USE_DHT
-// IMPOSTARE QUA L'INDIRIZZO
+// IMPOSTARE QUA L'INDIRIZZO a seconda del nodo di aggiornare
 // 04 Camera - 05 Cucina
 #define myvNet_address		0xCE04
 
