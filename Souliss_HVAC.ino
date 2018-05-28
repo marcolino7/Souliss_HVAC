@@ -8,6 +8,8 @@
 		'Channel Offset = 3
 		'BaudRate = 57600
 
+	Libreria IR https://github.com/r45635/HVAC-IR-Control
+		
 ***************************************************************************/
 #define USE_DHT
 // IMPOSTARE QUA L'INDIRIZZO a seconda del nodo di aggiornare
